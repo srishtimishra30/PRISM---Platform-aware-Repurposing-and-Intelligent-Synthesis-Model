@@ -1,5 +1,13 @@
+# Environment variables
 .env
+
+# Python cache
 __pycache__/
 *.pyc
+
+# Virtual environments
 venv/
 .venv/
+
+# AI/LLM environment files
+ai_llm/.env
