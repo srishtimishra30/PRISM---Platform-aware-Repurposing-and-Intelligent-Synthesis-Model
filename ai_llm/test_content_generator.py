@@ -22,20 +22,20 @@ except ImportError:
         generate_youtube_content,
     )
 
-SOURCE_TEXT = """ Social media has become an important part of modern daily life. People use social networking platforms to
-communicate with friends, share information, follow news, and discover new content.
-One major benefit of social media is communication. People can stay connected with family, friends, and
-professional communities even when they are in different locations. Social media also allows users to share
-photos, videos, ideas, and experiences with a large audience.
-Social media is also widely used for learning and information sharing. Students can discover educational
-content, follow experts, participate in online communities, and access different perspectives on various topics.
-However, excessive social media usage can create challenges. Spending too much time on social platforms
-may reduce productivity and distract users from their daily responsibilities. Users may also encounter
-misleading information, unwanted content, or privacy concerns.
-Responsible usage is therefore important. Users should be careful about the information they share online,
-review their privacy settings, and verify important information before accepting or sharing it with others.
-Overall, social media provides useful opportunities for communication, learning, and information sharing. At
-the same time, users need to maintain a healthy balance and use social platforms responsibly.
+SOURCE_TEXT = """ Maintaining a healthy lifestyle requires attention to several daily habits. Regular physical activity, balanced
+food choices, adequate sleep, and stress management can all contribute to overall well-being.
+Regular exercise can help people remain physically active and support daily energy levels. Different activities
+such as walking, cycling, stretching, or sports can be included according to individual preferences and
+routines.
+Food choices are also important. A balanced diet can provide the nutrients needed by the body and can
+encourage healthier eating habits. Drinking enough water is another simple part of maintaining daily health
+routines.
+Sleep plays an important role in recovery and concentration. Maintaining a regular sleep schedule can help
+people create a more consistent daily routine.
+Stress management is also useful. Activities such as exercise, hobbies, relaxation, and spending time with
+friends or family can help people manage everyday pressure.
+Overall, a healthy lifestyle is built through consistent daily habits rather than a single activity. Small and
+practical changes can make routines easier to maintain over time
 """
 
 

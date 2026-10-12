@@ -3,7 +3,7 @@ from sqlalchemy import text as sql
 from sqlalchemy.orm import Session
 
 from backend.database import get_db
-from backend.models import ContentInput
+from backend.models import ContentInput, ContentDNA
 from ai_llm.llm_service import generate_content
 
 router = APIRouter()
@@ -20,9 +20,11 @@ def summarize(content_id: str, db: Session = Depends(get_db)):
     if result.get("error"):
         raise HTTPException(status_code=502, detail=result["error"])
 
-    db.execute(
-        sql("insert into content_dna (input_id, top_insights) values (:i, :t)"),
-        {"i": content.id, "t": result["response"]},
-    )
+    existing_dna = db.query(ContentDNA).filter(ContentDNA.input_id == content.id).first()
+    if existing_dna:
+        existing_dna.top_insights = result["response"]
+    else:
+        new_dna = ContentDNA(input_id=content.id, top_insights=result["response"])
+        db.add(new_dna)
     db.commit()
     return {"id": content_id, "summary": result["response"]}

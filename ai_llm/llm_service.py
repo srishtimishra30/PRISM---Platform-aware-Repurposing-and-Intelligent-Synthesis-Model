@@ -4,10 +4,14 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 from dotenv import load_dotenv
 
-# Resolve path to .env file relative to this file's location (ai_llm/.env)
-_ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
+# Resolve path to .env file: check root .env first, then local ai_llm/.env
+_ROOT_ENV = Path(__file__).resolve().parent.parent / ".env"
+_LOCAL_ENV = Path(__file__).resolve().parent / ".env"
+_ENV_PATH = _ROOT_ENV if _ROOT_ENV.exists() else _LOCAL_ENV
 
-load_dotenv(dotenv_path=_ENV_PATH, override=True)
+load_dotenv(dotenv_path=_ROOT_ENV, override=False)
+load_dotenv(dotenv_path=_LOCAL_ENV, override=False)
+
 def _validate_api_key(key_name: str) -> str:
     """Validate that the required API key exists in environment variables."""
     api_key = os.getenv(key_name)
@@ -30,6 +34,8 @@ def generate_content(prompt: str, model_name: Optional[str] = None) -> Dict[str,
 
         start_time = time.perf_counter()
 
+        max_tokens = int(os.getenv("GROQ_MAX_TOKENS", "800"))
+
         try:
             from langchain_groq import ChatGroq
             from langchain_core.prompts import PromptTemplate
@@ -38,12 +44,13 @@ def generate_content(prompt: str, model_name: Optional[str] = None) -> Dict[str,
                 model=selected_model,
                 groq_api_key=api_key,
                 temperature=0.7,
+                max_tokens=max_tokens,
             )
             prompt_template = PromptTemplate.from_template("{input_prompt}")
             chain = prompt_template | llm
             result = chain.invoke({"input_prompt": prompt})
             output_text = str(result.content).strip()
-        except ImportError:
+        except Exception:
             from groq import Groq
 
             client = Groq(api_key=api_key)
@@ -51,6 +58,7 @@ def generate_content(prompt: str, model_name: Optional[str] = None) -> Dict[str,
                 model=selected_model,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.7,
+                max_tokens=max_tokens,
             )
             output_text = completion.choices[0].message.content.strip()
 

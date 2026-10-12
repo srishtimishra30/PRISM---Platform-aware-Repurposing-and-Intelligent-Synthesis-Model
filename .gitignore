@@ -11,3 +11,7 @@ venv/
 
 # AI/LLM environment files
 ai_llm/.env
+
+# Database files
+*.db
+prism_dev.db

@@ -1,11 +1,13 @@
 import { Link, useLocation } from 'react-router-dom'
-import { Sparkles, LayoutGrid, Send } from 'lucide-react'
+import { Sparkles, LayoutGrid, Send, History, Settings } from 'lucide-react'
 
 function Sidebar() {
   const location = useLocation()
   const items = [
     { path: '/', label: 'Generate', icon: Send },
     { path: '/dashboard', label: 'Dashboard', icon: LayoutGrid },
+    { path: '/history', label: 'History', icon: History },
+    { path: '/settings', label: 'Settings', icon: Settings },
   ]
 
   return (
