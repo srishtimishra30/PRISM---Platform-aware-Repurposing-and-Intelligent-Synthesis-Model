@@ -39,42 +39,38 @@ function Dashboard() {
     setLoading(true)
     setFetchError("")
 
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 6000)
+
     try {
-      // 1. Fetch History
-      try {
-        const hRes = await fetch(`${API}/api/content?limit=50`)
-        if (hRes.ok) {
-          const hData = await hRes.json()
-          setHistory(Array.isArray(hData) ? hData : [])
-        }
-      } catch (err) {
-        console.warn("History fetch error:", err)
+      const [hRes, aRes, sRes] = await Promise.allSettled([
+        fetch(`${API}/api/content?limit=50`, { signal: controller.signal }),
+        fetch(`${API}/api/publishing/analytics`, { signal: controller.signal }),
+        fetch(`${API}/api/schedules`, { signal: controller.signal }),
+      ])
+
+      clearTimeout(timeoutId)
+
+      if (hRes.status === "fulfilled" && hRes.value.ok) {
+        const hData = await hRes.value.json()
+        setHistory(Array.isArray(hData) ? hData : [])
       }
 
-      // 2. Fetch Analytics
-      try {
-        const aRes = await fetch(`${API}/api/publishing/analytics`)
-        if (aRes.ok) {
-          const aData = await aRes.json()
-          setAnalytics(aData)
-        }
-      } catch (err) {
-        console.warn("Analytics fetch error:", err)
+      if (aRes.status === "fulfilled" && aRes.value.ok) {
+        const aData = await aRes.value.json()
+        setAnalytics(aData)
       }
 
-      // 3. Fetch Schedules
-      try {
-        const sRes = await fetch(`${API}/api/schedules`)
-        if (sRes.ok) {
-          const sData = await sRes.json()
-          setSchedules(Array.isArray(sData) ? sData : [])
-        }
-      } catch (err) {
-        console.warn("Schedules fetch error:", err)
+      if (sRes.status === "fulfilled" && sRes.value.ok) {
+        const sData = await sRes.value.json()
+        setSchedules(Array.isArray(sData) ? sData : [])
       }
     } catch (e) {
-      setFetchError("Unable to reach backend API. Make sure the backend server is running on http://127.0.0.1:8000.")
+      if (e.name !== "AbortError") {
+        setFetchError("Unable to reach backend API. Make sure the backend server is running on http://127.0.0.1:8000.")
+      }
     } finally {
+      clearTimeout(timeoutId)
       setLoading(false)
     }
   }

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import {
   Upload,
   FileText,
@@ -20,27 +20,36 @@ import {
   Image as ImageIcon,
   CheckCircle,
   TrendingUp,
-  Sliders
+  Sliders,
+  X,
+  PlayCircle,
+  Eye,
+  RotateCcw
 } from 'lucide-react'
+import SourceToSevenIllustration from '../components/SourceToSevenIllustration'
+import { PlatformIcon } from '../components/ChannelIcons'
+import BestTimeToPostCard from '../components/BestTimeToPostCard'
+import ExportDropdown from '../components/ExportDropdown'
+import { useGeneration } from '../context/GenerationContext'
 
 const API = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000"
 
 const INPUT_TABS = [
-  { id: 'text', label: 'Raw Text', icon: FileText, desc: 'Paste raw thoughts, draft, notes' },
-  { id: 'url', label: 'Article / Blog URL', icon: Globe, desc: 'Clean web article extraction' },
-  { id: 'youtube', label: 'YouTube Video', icon: Video, desc: 'Fetch video closed captions' },
-  { id: 'pdf', label: 'PDF Document', icon: Upload, desc: 'Extract pages via PyMuPDF' },
-  { id: 'audio', label: 'Podcast / Audio', icon: Mic, desc: 'Speech-to-text via Whisper' },
+  { id: 'url', label: 'Article / Blog URL', icon: Globe, desc: 'Paste web article URL' },
+  { id: 'youtube', label: 'YouTube URL', icon: Video, desc: 'Fetch video closed captions' },
+  { id: 'pdf', label: 'PDF Upload', icon: Upload, desc: 'Upload PDF document' },
+  { id: 'audio', label: 'Audio Upload', icon: Mic, desc: 'Upload podcast or speech file' },
+  { id: 'text', label: 'Paste Your Text', icon: FileText, desc: 'Paste raw thoughts, draft, notes' },
 ]
 
-const PLATFORM_CONFIG = [
-  { key: 'summary', label: 'Summary', icon: '📝', color: '#6C5CE7' },
-  { key: 'linkedin_post', label: 'LinkedIn', icon: '💼', color: '#0A66C2' },
-  { key: 'twitter_thread', label: 'Twitter / X', icon: '🧵', color: '#1DA1F2' },
-  { key: 'instagram_caption', label: 'Instagram', icon: '📸', color: '#E1306C' },
-  { key: 'youtube_content', label: 'YouTube', icon: '🎬', color: '#FF0000' },
-  { key: 'email_newsletter', label: 'Email Newsletter', icon: '📧', color: '#10B981' },
-  { key: 'blog_post', label: 'Blog Rewrite', icon: '📰', color: '#F59E0B' },
+const CHANNELS = [
+  { key: 'summary', name: 'Summary', color: '#6C5CE7', desc: 'Key points & high-level takeaways' },
+  { key: 'linkedin_post', name: 'LinkedIn Post', color: '#0A66C2', desc: 'Executive hook, body paragraphs & CTA' },
+  { key: 'twitter_thread', name: 'Twitter / X Thread', color: '#111827', desc: 'Numbered thread with hook & hashtags' },
+  { key: 'instagram_caption', name: 'Instagram Caption', color: '#E1306C', desc: 'Catchy caption, line breaks & tags' },
+  { key: 'youtube_content', name: 'YouTube Metadata', color: '#FF0000', desc: 'SEO title, description & key points' },
+  { key: 'email_newsletter', name: 'Email Newsletter', color: '#10B981', desc: 'Subject lines, snippet & newsletter body' },
+  { key: 'blog_post', name: 'Blog Rewrite', color: '#F59E0B', desc: 'SEO title, introduction, body & takeaways' },
 ]
 
 const TONES = [
@@ -51,7 +60,16 @@ const TONES = [
   'Humorous',
 ]
 
+const AUDIENCES = [
+  'General Audience',
+  'Developers & Tech Professionals',
+  'Founders & Business Leaders',
+  'Students & Lifelong Learners',
+  'Marketers & Creators',
+]
+
 const LANGUAGES = [
+  'English',
   'Spanish',
   'Hindi',
   'French',
@@ -59,804 +77,1064 @@ const LANGUAGES = [
   'Portuguese',
   'Japanese',
   'Arabic',
-  'Bengali',
 ]
 
-function InputPage() {
-  const [activeInputTab, setActiveInputTab] = useState("text")
+export default function InputPage() {
+  // Global Persistent Generation Context
+  const {
+    activeJob,
+    isGenerating: isBackgroundGenerating,
+    startBackgroundGeneration,
+    retryFailedJobChannels,
+  } = useGeneration()
+
+  // Input Selection
+  const [activeInputTab, setActiveInputTab] = useState("url")
   const [inputText, setInputText] = useState("")
   const [urlInput, setUrlInput] = useState("")
   const [youtubeUrl, setYoutubeUrl] = useState("")
   const [pdfFile, setPdfFile] = useState(null)
   const [audioFile, setAudioFile] = useState(null)
+
+  // Generation Controls
   const [selectedTone, setSelectedTone] = useState(() => {
     return localStorage.getItem("prism_default_tone") || "Professional"
   })
+  const [selectedAudience, setSelectedAudience] = useState("General Audience")
+  const [selectedLanguage, setSelectedLanguage] = useState("English")
+  const [selectedChannels, setSelectedChannels] = useState(CHANNELS.map((c) => c.key))
 
-  // State: Normalized Content Extraction
+  // Extraction State
   const [contentId, setContentId] = useState(null)
   const [extractedTitle, setExtractedTitle] = useState("")
   const [extracted, setExtracted] = useState("")
   const [extracting, setExtracting] = useState(false)
   const [error, setError] = useState("")
 
-  // State: Generation & Outputs
-  const [generating, setGenerating] = useState(false)
+  // Generation & Real-time Progress State
+  const [channelStatus, setChannelStatus] = useState({})
   const [outputs, setOutputs] = useState({})
-  const [activePlatformTab, setActivePlatformTab] = useState("summary")
-  const [isEditing, setIsEditing] = useState(false)
-  const [copiedKey, setCopiedKey] = useState("")
+  const [channelErrors, setChannelErrors] = useState({})
+  const [regeneratingChannel, setRegeneratingChannel] = useState(null)
 
-  // State: AI Extensions (SEO, Quality, Image, Translation, Scheduler)
+  // Editing & UI State
+  const [editingChannel, setEditingChannel] = useState(null)
+  const [editBuffer, setEditBuffer] = useState("")
+  const [copiedKey, setCopiedKey] = useState("")
+  const [elapsedTime, setElapsedTime] = useState(0)
+  const timerRef = useRef(null)
+
+  // Extensions (SEO, Quality, Image)
   const [seoData, setSeoData] = useState(null)
   const [loadingSeo, setLoadingSeo] = useState(false)
-
   const [qualityData, setQualityData] = useState(null)
   const [loadingQuality, setLoadingQuality] = useState(false)
-
   const [imagePromptData, setImagePromptData] = useState(null)
   const [imageStyle, setImageStyle] = useState("Modern Digital Art")
   const [loadingImage, setLoadingImage] = useState(false)
+  const [successToast, setSuccessToast] = useState("")
+  const prevGeneratingRef = useRef(false)
 
-  const [targetLang, setTargetLang] = useState("Spanish")
-  const [translatedText, setTranslatedText] = useState("")
-  const [loadingTranslate, setLoadingTranslate] = useState(false)
+  // Notify when all channels finish generation
+  useEffect(() => {
+    if (prevGeneratingRef.current && !isBackgroundGenerating && activeJob?.status === "Completed") {
+      setSuccessToast("All 7 channels regenerated successfully!")
+      const t = setTimeout(() => setSuccessToast(""), 4500)
+      return () => clearTimeout(t)
+    }
+    prevGeneratingRef.current = isBackgroundGenerating
+  }, [isBackgroundGenerating, activeJob?.status])
 
-  const [scheduleDateTime, setScheduleDateTime] = useState("")
-  const [scheduleStatus, setScheduleStatus] = useState("")
+  // Synchronize with background job state (for refresh recovery and page navigation)
+  useEffect(() => {
+    if (!activeJob) return
+    if (activeJob.content_id && !contentId) {
+      setContentId(activeJob.content_id)
+    }
 
-  // 1. UNIFIED INPUT EXTRACTION
+    if (activeJob.channel_results && activeJob.channel_results.length > 0) {
+      const syncedOutputs = {}
+      const syncedStatus = {}
+      const syncedErrors = {}
+
+      activeJob.channel_results.forEach((r) => {
+        if (r.generated_content) {
+          syncedOutputs[r.platform] = r.generated_content
+          syncedStatus[r.platform] = "ready"
+        } else if (r.status === "Processing" || (isBackgroundGenerating && r.status === "Pending")) {
+          syncedStatus[r.platform] = "generating"
+        } else if (r.status === "Failed") {
+          syncedStatus[r.platform] = "error"
+          syncedErrors[r.platform] = r.error || "Generation failed"
+        }
+      })
+
+      setOutputs((prev) => ({ ...prev, ...syncedOutputs }))
+      setChannelStatus((prev) => ({ ...prev, ...syncedStatus }))
+      if (Object.keys(syncedErrors).length > 0) {
+        setChannelErrors((prev) => ({ ...prev, ...syncedErrors }))
+      }
+    }
+  }, [activeJob, contentId, isBackgroundGenerating])
+
+  // Timer effect for generation
+  useEffect(() => {
+    if (isBackgroundGenerating) {
+      setElapsedTime(0)
+      timerRef.current = setInterval(() => {
+        setElapsedTime((prev) => prev + 0.1)
+      }, 100)
+    } else {
+      if (timerRef.current) clearInterval(timerRef.current)
+    }
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current)
+    }
+  }, [isBackgroundGenerating])
+
+  // Toggle channel selection
+  const toggleChannel = (key) => {
+    setSelectedChannels((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
+    )
+  }
+
+  const toggleAllChannels = () => {
+    if (selectedChannels.length === CHANNELS.length) {
+      setSelectedChannels([])
+    } else {
+      setSelectedChannels(CHANNELS.map((c) => c.key))
+    }
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // 1. EXTRACT / NORMALIZE SOURCE CONTENT
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   const handleExtract = async () => {
     setError("")
     setExtracting(true)
     setExtracted("")
     setContentId(null)
     setOutputs({})
+    setChannelStatus({})
+    setChannelErrors({})
     setSeoData(null)
     setQualityData(null)
     setImagePromptData(null)
 
     try {
       let res
-      if (activeInputTab === "text") {
-        if (!inputText.trim()) throw new Error("Please enter some text to repurpose.")
-        res = await fetch(`${API}/api/inputs/text`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: inputText.trim() }),
-        })
-      } else if (activeInputTab === "url") {
-        if (!urlInput.trim()) throw new Error("Please provide a valid article or blog URL.")
+      if (activeInputTab === "url") {
+        if (!urlInput.trim()) throw new Error("Please enter a valid article or blog URL.")
         res = await fetch(`${API}/api/inputs/url`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ url: urlInput.trim() }),
         })
       } else if (activeInputTab === "youtube") {
-        if (!youtubeUrl.trim()) throw new Error("Please provide a valid YouTube video link.")
+        if (!youtubeUrl.trim()) throw new Error("Please enter a valid YouTube video link.")
         res = await fetch(`${API}/api/inputs/youtube`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ url: youtubeUrl.trim() }),
         })
       } else if (activeInputTab === "pdf") {
-        if (!pdfFile) throw new Error("Please select a PDF document first.")
+        if (!pdfFile) throw new Error("Please select a PDF file first.")
         const formData = new FormData()
         formData.append("file", pdfFile)
-        res = await fetch(`${API}/api/inputs/pdf`, {
-          method: "POST",
-          body: formData,
-        })
+        res = await fetch(`${API}/api/inputs/pdf`, { method: "POST", body: formData })
       } else if (activeInputTab === "audio") {
         if (!audioFile) throw new Error("Please select an audio file (mp3, wav, m4a).")
         const formData = new FormData()
         formData.append("file", audioFile)
-        res = await fetch(`${API}/api/inputs/audio`, {
+        res = await fetch(`${API}/api/inputs/audio`, { method: "POST", body: formData })
+      } else {
+        if (!inputText.trim()) throw new Error("Please paste some text to repurpose.")
+        res = await fetch(`${API}/api/inputs/text`, {
           method: "POST",
-          body: formData,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: inputText.trim() }),
         })
       }
 
-      if (!res) {
-        throw new Error("No response received from server. Please verify backend is running.")
-      }
-
-      let data = {}
-      try {
-        data = await res.json()
-      } catch (jsonErr) {
-        throw new Error(`Server returned status ${res.status} (${res.statusText}) with non-JSON response.`)
-      }
-
-      if (!res.ok) {
-        throw new Error(data.detail || `Extraction failed with status ${res.status}`)
-      }
+      if (!res) throw new Error("No response from server. Check backend.")
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.detail || `Extraction failed (${res.status})`)
 
       setContentId(data.content_id || data.id)
       setExtractedTitle(data.title || "")
       setExtracted(data.extracted_text || data.raw_text || "")
     } catch (err) {
-      if (err.name === "TypeError" && err.message.toLowerCase().includes("fetch")) {
-        setError("Failed to connect to backend API server at " + API + ". Please ensure FastAPI is running on port 8000.")
-      } else {
-        setError(err.message || "Failed to extract content.")
-      }
+      setError(err.message || "Failed to extract source content.")
     } finally {
       setExtracting(false)
     }
   }
 
-  // 2. GENERATE ALL 7 PLATFORM OUTPUTS (5 ORIGINAL + EMAIL + BLOG) WITH SELECTED TONE
-  const handleGenerateAll = async () => {
-    if (!contentId) return
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // 2. PERSISTENT BACKGROUND SYNTHESIS TRIGGER
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  const handleSynthesizeAll = async () => {
+    if (!contentId && !extracted.trim()) {
+      setError("Please extract or input source content first.")
+      return
+    }
+
+    let targetContentId = contentId
+    if (!targetContentId) {
+      setExtracting(true)
+      try {
+        const textPayload =
+          activeInputTab === "text"
+            ? inputText
+            : extracted || "Content to synthesize"
+        const r = await fetch(`${API}/api/inputs/text`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: textPayload.trim() }),
+        })
+        const d = await r.json()
+        targetContentId = d.content_id || d.id
+        setContentId(targetContentId)
+        setExtracted(textPayload.trim())
+      } catch (e) {
+        setError("Failed to initialize content record: " + e.message)
+        setExtracting(false)
+        return
+      } finally {
+        setExtracting(false)
+      }
+    }
+
+    if (!targetContentId) return
+
+    const channelsToRun = selectedChannels.length > 0 ? selectedChannels : CHANNELS.map((c) => c.key)
+
     setError("")
-    setGenerating(true)
+    // Set pending statuses
+    const initialStatus = {}
+    channelsToRun.forEach((ch) => {
+      initialStatus[ch] = "generating"
+    })
+    setChannelStatus((prev) => ({ ...prev, ...initialStatus }))
 
     try {
-      const res = await fetch(`${API}/api/content/${contentId}/generate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tone: selectedTone }),
+      // Start persistent background job (independent of page lifecycle)
+      await startBackgroundGeneration(targetContentId, {
+        tone: selectedTone,
+        audience: selectedAudience,
+        channels: channelsToRun,
+        language: selectedLanguage,
       })
-      const data = await res.json()
-      if (!res.ok) {
-        throw new Error(data.detail || `Generation failed (${res.status})`)
-      }
-
-      setOutputs({
-        summary: data.summary || "",
-        linkedin_post: data.linkedin_post || "",
-        twitter_thread: data.twitter_thread || "",
-        instagram_caption: data.instagram_caption || "",
-        youtube_content: data.youtube_content || "",
-        email_newsletter: data.email_newsletter || "",
-        blog_post: data.blog_post || "",
-      })
-
-      // Automatically trigger quality check
-      handleQualityCheck()
     } catch (err) {
-      setError(err.message || "Generation error.")
-    } finally {
-      setGenerating(false)
+      setError(err.message || "Failed to start background generation.")
     }
   }
 
-  // 3. EDIT & SAVE CHANGES BACK TO DATABASE
-  const handleSaveEdit = async () => {
-    if (!contentId || !outputs[activePlatformTab]) return
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // 2b. REGENERATE ALL CHANNELS
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  const handleRegenerateAll = async () => {
+    if (!contentId && !extracted.trim()) {
+      setError("Please extract or input source content first.")
+      return
+    }
+
+    let targetContentId = contentId
+    if (!targetContentId) {
+      setExtracting(true)
+      try {
+        const textPayload =
+          activeInputTab === "text"
+            ? inputText
+            : extracted || "Content to synthesize"
+        const r = await fetch(`${API}/api/inputs/text`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: textPayload.trim() }),
+        })
+        const d = await r.json()
+        targetContentId = d.content_id || d.id
+        setContentId(targetContentId)
+        setExtracted(textPayload.trim())
+      } catch (e) {
+        setError("Failed to initialize content record: " + e.message)
+        setExtracting(false)
+        return
+      } finally {
+        setExtracting(false)
+      }
+    }
+
+    if (!targetContentId) return
+
+    // All 7 supported channels
+    const allChannelKeys = CHANNELS.map((c) => c.key)
+
+    setError("")
+    // Set all channels to generating immediately so cards show live spinning progress
+    const initialStatus = {}
+    allChannelKeys.forEach((ch) => {
+      initialStatus[ch] = "generating"
+    })
+    setChannelStatus((prev) => ({ ...prev, ...initialStatus }))
+    setChannelErrors({})
+
+    try {
+      await startBackgroundGeneration(targetContentId, {
+        tone: selectedTone,
+        audience: selectedAudience,
+        channels: allChannelKeys,
+        language: selectedLanguage,
+      })
+    } catch (err) {
+      setError(err.message || "Failed to start regeneration.")
+    }
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // 3. INDIVIDUAL CHANNEL REGENERATION (Single-Click Retry)
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  const handleRegenerateChannel = async (channelKey) => {
+    if (!contentId) return
+    setRegeneratingChannel(channelKey)
+    setChannelStatus((prev) => ({ ...prev, [channelKey]: "generating" }))
+    setChannelErrors((prev) => {
+      const next = { ...prev }
+      delete next[channelKey]
+      return next
+    })
+
+    try {
+      const res = await fetch(`${API}/api/content/${contentId}/generate/${channelKey}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tone: selectedTone,
+          target_audience: selectedAudience,
+          language: selectedLanguage,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.detail || "Regeneration failed")
+
+      if (data.content) {
+        setOutputs((prev) => ({ ...prev, [channelKey]: data.content }))
+        setChannelStatus((prev) => ({ ...prev, [channelKey]: "ready" }))
+      } else {
+        setChannelStatus((prev) => ({ ...prev, [channelKey]: "error" }))
+        setChannelErrors((prev) => ({ ...prev, [channelKey]: data.error || "Failed" }))
+      }
+    } catch (err) {
+      setChannelStatus((prev) => ({ ...prev, [channelKey]: "error" }))
+      setChannelErrors((prev) => ({ ...prev, [channelKey]: err.message }))
+    } finally {
+      setRegeneratingChannel(null)
+    }
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // 4. INLINE EDIT & SAVE
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  const startEditing = (channelKey) => {
+    setEditingChannel(channelKey)
+    setEditBuffer(outputs[channelKey] || "")
+  }
+
+  const saveEdit = async (channelKey) => {
+    if (!contentId) return
     try {
       await fetch(`${API}/api/content/${contentId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          platform: activePlatformTab,
-          content: outputs[activePlatformTab],
+          platform: channelKey,
+          content: editBuffer,
         }),
       })
-      setIsEditing(false)
+      setOutputs((prev) => ({ ...prev, [channelKey]: editBuffer }))
+      setEditingChannel(null)
     } catch (err) {
-      alert("Error saving edits: " + err.message)
+      alert("Failed to save changes: " + err.message)
     }
   }
 
-  // 4. COPY & DOWNLOAD HELPERS
   const handleCopy = (text, key) => {
+    if (!text) return
     navigator.clipboard.writeText(text)
     setCopiedKey(key)
     setTimeout(() => setCopiedKey(""), 2000)
   }
 
-  const handleDownload = (text, platformName) => {
+  const handleDownload = (text, filename) => {
+    if (!text) return
     const blob = new Blob([text], { type: "text/plain" })
     const link = document.createElement("a")
     link.href = URL.createObjectURL(blob)
-    link.download = `prism-${platformName}.txt`
+    link.download = `prism-${filename.toLowerCase().replace(/[\s/]+/g, "-")}.txt`
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
   }
 
-  // 5. EXTENSIONS: SEO, QUALITY, IMAGE PROMPT, TRANSLATE, SCHEDULER
-  const handleFetchSeo = async () => {
-    if (!contentId) return
-    setLoadingSeo(true)
-    try {
-      const res = await fetch(`${API}/api/content/${contentId}/seo`, { method: "POST" })
-      const data = await res.json()
-      setSeoData(data.seo_metadata)
-    } catch (err) {
-      alert("SEO generation error: " + err.message)
-    } finally {
-      setLoadingSeo(false)
-    }
-  }
-
-  const handleQualityCheck = async () => {
-    if (!contentId) return
-    setLoadingQuality(true)
-    try {
-      const res = await fetch(`${API}/api/content/${contentId}/quality-check`, { method: "POST" })
-      const data = await res.json()
-      setQualityData(data)
-    } catch (err) {
-      console.error(err)
-    } finally {
-      setLoadingQuality(false)
-    }
-  }
-
-  const handleCreateImagePrompt = async () => {
-    if (!contentId) return
-    setLoadingImage(true)
-    try {
-      const res = await fetch(`${API}/api/content/${contentId}/image-prompt`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ style: imageStyle }),
-      })
-      const data = await res.json()
-      setImagePromptData(data)
-    } catch (err) {
-      alert("Image prompt error: " + err.message)
-    } finally {
-      setLoadingImage(false)
-    }
-  }
-
-  const handleTranslate = async () => {
-    const textToTranslate = outputs[activePlatformTab]
-    if (!contentId || !textToTranslate) return
-    setLoadingTranslate(true)
-    setTranslatedText("")
-    try {
-      const res = await fetch(`${API}/api/content/${contentId}/translate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          target_language: targetLang,
-          content: textToTranslate,
-        }),
-      })
-      const data = await res.json()
-      setTranslatedText(data.translated_content || "")
-    } catch (err) {
-      alert("Translation failed: " + err.message)
-    } finally {
-      setLoadingTranslate(false)
-    }
-  }
-
-  const handleSchedulePost = async () => {
-    const contentToSchedule = outputs[activePlatformTab]
-    if (!contentToSchedule || !scheduleDateTime) return
-    try {
-      const res = await fetch(`${API}/api/schedules`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          input_id: contentId,
-          platform: activePlatformTab,
-          content: contentToSchedule,
-          scheduled_time: scheduleDateTime,
-          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
-        }),
-      })
-      if (!res.ok) throw new Error("Scheduling error")
-      setScheduleStatus("Post scheduled successfully in database queue!")
-      setTimeout(() => setScheduleStatus(""), 3000)
-    } catch (err) {
-      alert("Failed to schedule: " + err.message)
-    }
-  }
-
-  const hasAnyOutput = Object.values(outputs).some((val) => val && val.trim().length > 0)
+  const completedChannelsCount = Object.keys(outputs).filter((k) => outputs[k]).length
 
   return (
-    <div className="px-6 md:px-12 py-10 max-w-6xl mx-auto space-y-8">
-      {/* Page Header */}
-      <div>
-        <div className="flex items-center gap-2 mb-1">
-          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-          <p className="text-xs uppercase tracking-wider text-[#6C5CE7] font-bold">
-            PRISM Platform-Aware Repurposing Engine
+    <div className="px-4 sm:px-8 md:px-12 py-10 max-w-7xl mx-auto space-y-12">
+      {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          HERO SECTION — "One source, seven channels."
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      <section className="bg-white rounded-3xl border border-gray-200/80 p-8 md:p-12 shadow-sm relative overflow-hidden">
+        <div className="absolute top-0 right-0 -mt-12 -mr-12 w-96 h-96 bg-gradient-to-bl from-purple-200/40 via-indigo-100/20 to-transparent rounded-full blur-3xl pointer-events-none" />
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center relative z-10">
+          <div className="lg:col-span-6 space-y-4">
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-purple-50 border border-purple-200/60 text-[#6C5CE7] text-xs font-bold tracking-wide uppercase">
+              <Sparkles size={14} className="text-[#6C5CE7]" />
+              <span>Persistent AI Content Synthesis</span>
+            </div>
+
+            <h1 className="font-display text-4xl sm:text-5xl font-black text-[#15161A] tracking-tight leading-[1.12]">
+              One source,<br />
+              <span className="bg-gradient-to-r from-[#6C5CE7] via-[#5D4AE0] to-[#7C3AED] bg-clip-text text-transparent">
+                seven channels.
+              </span>
+            </h1>
+
+            <p className="text-gray-500 text-sm sm:text-base leading-relaxed max-w-lg">
+              Add an article, video, PDF, audio or your own notes. PRISM writes platform-ready posts in the background while you navigate freely.
+            </p>
+
+            <div className="pt-2 flex flex-wrap items-center gap-4 text-xs font-semibold text-gray-500">
+              <div className="flex items-center gap-1.5">
+                <CheckCircle size={15} className="text-emerald-500" />
+                <span>Persistent Background Jobs</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <CheckCircle size={15} className="text-emerald-500" />
+                <span>AI Best Time to Post</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <CheckCircle size={15} className="text-emerald-500" />
+                <span>Post Scheduling Queue</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="lg:col-span-6 flex items-center justify-center bg-gray-50/60 rounded-2xl border border-gray-100/80 p-2 sm:p-4">
+            <SourceToSevenIllustration />
+          </div>
+        </div>
+      </section>
+
+      {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          INPUT SECTION (5 options with suitable icons)
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      <section className="bg-white rounded-3xl border border-gray-200/80 p-6 md:p-8 shadow-sm space-y-6">
+        <div>
+          <h2 className="text-lg font-bold text-[#15161A] tracking-tight flex items-center gap-2.5">
+            <span className="w-6 h-6 rounded-lg bg-indigo-50 text-[#6C5CE7] flex items-center justify-center text-xs font-bold">
+              1
+            </span>
+            <span>Provide Source Material</span>
+          </h2>
+          <p className="text-xs text-gray-400 mt-1">
+            Choose your source format. PRISM extracts clean text and preserves key facts and context.
           </p>
         </div>
-        <h1 className="font-display text-3xl font-extrabold text-[#15161A] tracking-tight">
-          Transform 1 Content Source into 7 Tailored Channels
-        </h1>
-        <p className="text-sm text-gray-500 mt-1 max-w-3xl">
-          Unified input processor supporting Article URLs, YouTube Videos, PDFs, Audio, and Raw text.
-        </p>
-      </div>
-
-      {/* MODULE 1: UNIFIED INPUT INTERFACE */}
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-200/80 p-6">
-        <h2 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-4">
-          Select Source Content Type
-        </h2>
 
         {/* 5 Input Tabs */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5 mb-6">
-          {INPUT_TABS.map(({ id, label, icon: Icon, desc }) => {
-            const active = activeInputTab === id
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+          {INPUT_TABS.map((tab) => {
+            const Icon = tab.icon
+            const active = activeInputTab === tab.id
             return (
               <button
-                key={id}
-                onClick={() => setActiveInputTab(id)}
-                className={`p-3.5 rounded-xl border text-left transition-all ${
+                key={tab.id}
+                onClick={() => {
+                  setActiveInputTab(tab.id)
+                  setError("")
+                }}
+                className={`flex flex-col items-center justify-center p-3.5 rounded-2xl border text-center transition-all cursor-pointer ${
                   active
-                    ? "border-[#6C5CE7] bg-indigo-50/60 shadow-sm ring-2 ring-[#6C5CE7]/15"
-                    : "border-gray-200/80 hover:border-gray-300 bg-white"
+                    ? 'border-[#6C5CE7] bg-indigo-50/40 text-[#6C5CE7] font-bold shadow-sm'
+                    : 'border-gray-200/70 hover:border-gray-300 bg-white text-gray-600'
                 }`}
               >
-                <div className={`p-2 rounded-lg inline-block mb-2 ${active ? "bg-[#6C5CE7] text-white" : "bg-gray-100 text-gray-600"}`}>
-                  <Icon size={16} />
-                </div>
-                <div className="text-xs font-bold text-gray-900">{label}</div>
-                <div className="text-[10px] text-gray-400 mt-0.5 leading-snug">{desc}</div>
+                <Icon size={20} className={active ? 'text-[#6C5CE7]' : 'text-gray-400'} />
+                <span className="text-xs mt-1.5 leading-tight">{tab.label}</span>
               </button>
             )
           })}
         </div>
 
-        {/* Tab 1: Text */}
-        {activeInputTab === "text" && (
-          <div>
-            <textarea
-              className="w-full h-36 text-sm p-4 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#6C5CE7]/30 text-gray-800 placeholder:text-gray-400"
-              placeholder="Paste raw text, speech notes, meeting minutes, or an article draft here..."
-              value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-            />
-            <div className="flex justify-between items-center text-xs text-gray-400 mt-2 px-1">
-              <span>{inputText.length} characters</span>
-              <span>Direct Multiline Input</span>
-            </div>
-          </div>
-        )}
-
-        {/* Tab 2: Article URL */}
-        {activeInputTab === "url" && (
-          <div>
-            <div className="relative">
-              <input
-                type="url"
-                className="w-full text-sm p-3.5 pl-10 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#6C5CE7]/30 text-gray-800 placeholder:text-gray-400"
-                placeholder="https://techcrunch.com/article... or public blog post URL"
-                value={urlInput}
-                onChange={(e) => setUrlInput(e.target.value)}
-              />
-              <Globe className="absolute left-3.5 top-4 text-indigo-500" size={17} />
-            </div>
-            <p className="text-xs text-gray-400 mt-2 px-1">
-              Protected against SSRF. Extracts clean article body text while stripping out ads and page boilerplate.
-            </p>
-          </div>
-        )}
-
-        {/* Tab 3: YouTube */}
-        {activeInputTab === "youtube" && (
-          <div>
-            <div className="relative">
-              <input
-                type="url"
-                className="w-full text-sm p-3.5 pl-10 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#6C5CE7]/30 text-gray-800 placeholder:text-gray-400"
-                placeholder="https://www.youtube.com/watch?v=... or https://youtu.be/..."
-                value={youtubeUrl}
-                onChange={(e) => setYoutubeUrl(e.target.value)}
-              />
-              <Video className="absolute left-3.5 top-4 text-red-500" size={18} />
-            </div>
-            <p className="text-xs text-gray-400 mt-2 px-1">
-              Retrieves official YouTube captions/transcripts automatically.
-            </p>
-          </div>
-        )}
-
-        {/* Tab 4: PDF */}
-        {activeInputTab === "pdf" && (
-          <div className="border-2 border-dashed border-gray-200 rounded-xl p-8 text-center hover:border-[#6C5CE7] transition-colors">
-            <Upload className="mx-auto mb-3 text-[#6C5CE7]" size={32} />
-            <p className="text-sm font-semibold text-gray-800 mb-1">
-              {pdfFile ? pdfFile.name : "Select or drag a PDF document"}
-            </p>
-            <p className="text-xs text-gray-400 mb-4">Fast multipage parsing powered by PyMuPDF</p>
-            <label className="inline-block bg-gray-100 hover:bg-gray-200 text-gray-800 text-xs font-semibold px-4 py-2 rounded-lg cursor-pointer transition-colors">
-              Browse Files
-              <input
-                type="file"
-                accept=".pdf,application/pdf"
-                className="hidden"
-                onChange={(e) => setPdfFile(e.target.files[0] || null)}
-              />
-            </label>
-          </div>
-        )}
-
-        {/* Tab 5: Audio / Podcast */}
-        {activeInputTab === "audio" && (
-          <div className="border-2 border-dashed border-gray-200 rounded-xl p-8 text-center hover:border-[#6C5CE7] transition-colors">
-            <Mic className="mx-auto mb-3 text-[#6C5CE7]" size={32} />
-            <p className="text-sm font-semibold text-gray-800 mb-1">
-              {audioFile ? audioFile.name : "Select an audio recording (.mp3, .wav, .m4a)"}
-            </p>
-            <p className="text-xs text-gray-400 mb-4">Whisper Speech-to-Text Audio Transcription</p>
-            <label className="inline-block bg-gray-100 hover:bg-gray-200 text-gray-800 text-xs font-semibold px-4 py-2 rounded-lg cursor-pointer transition-colors">
-              Browse Audio File
-              <input
-                type="file"
-                accept="audio/*,.mp3,.wav,.m4a"
-                className="hidden"
-                onChange={(e) => setAudioFile(e.target.files[0] || null)}
-              />
-            </label>
-          </div>
-        )}
-
-        {/* Extraction Button */}
-        <div className="flex items-center justify-between pt-5 border-t border-gray-100 mt-6">
-          <span className="text-xs text-gray-400">
-            {contentId ? `Normalized Content ID: ${contentId.slice(0, 8)}...` : "Select an input method and extract"}
-          </span>
-
-          <button
-            onClick={handleExtract}
-            disabled={extracting}
-            className="flex items-center gap-2 bg-gradient-to-r from-[#6C5CE7] to-[#4638E0] text-white text-sm font-semibold px-5 py-2.5 rounded-xl hover:opacity-95 transition-all shadow-md shadow-indigo-500/20 disabled:opacity-50 cursor-pointer"
-          >
-            {extracting ? (
-              <>
-                <RefreshCw size={16} className="animate-spin" />
-                <span>Extracting Source Content...</span>
-              </>
-            ) : (
-              <>
-                <span>Extract Content</span>
-                <ArrowRight size={16} />
-              </>
-            )}
-          </button>
-        </div>
-
-        {/* Error Alert */}
-        {error && (
-          <div className="mt-4 p-4 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs flex items-center gap-2">
-            <AlertCircle size={16} className="shrink-0" />
-            <span>{error}</span>
-          </div>
-        )}
-
-        {/* Extracted Preview & Tone Configuration */}
-        {extracted && (
-          <div className="mt-6 p-5 rounded-xl bg-gray-50 border border-gray-200 space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-200/70 pb-3">
-              <div>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-[#6C5CE7] bg-indigo-50 px-2 py-0.5 rounded-full">
-                  Extracted Source
-                </span>
-                <h3 className="text-sm font-bold text-gray-900 mt-1">
-                  {extractedTitle || "Normalized Content"} ({extracted.length} chars)
-                </h3>
-              </div>
-
-              {/* MODULE 2: TONE ADAPTOR SELECTOR */}
-              <div className="flex items-center gap-2">
-                <Sliders size={14} className="text-gray-500" />
-                <span className="text-xs font-semibold text-gray-600">Tone:</span>
-                <select
-                  value={selectedTone}
-                  onChange={(e) => setSelectedTone(e.target.value)}
-                  className="text-xs font-medium bg-white border border-gray-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-[#6C5CE7]"
-                >
-                  {TONES.map((t) => (
-                    <option key={t} value={t}>{t}</option>
-                  ))}
-                </select>
-
+        {/* Dynamic Tab Body */}
+        <div className="space-y-4 pt-1">
+          {activeInputTab === "url" && (
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-gray-700">Article or Blog URL</label>
+              <div className="flex flex-col sm:flex-row gap-2.5">
+                <div className="relative flex-1">
+                  <Globe className="absolute left-3.5 top-3.5 text-gray-400" size={17} />
+                  <input
+                    type="url"
+                    value={urlInput}
+                    onChange={(e) => setUrlInput(e.target.value)}
+                    placeholder="https://example.com/blog/future-of-ai"
+                    className="w-full text-xs sm:text-sm pl-10 pr-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#6C5CE7]/30 text-gray-800 placeholder:text-gray-400"
+                  />
+                </div>
                 <button
-                  onClick={handleGenerateAll}
-                  disabled={generating}
-                  className="flex items-center gap-1.5 bg-[#6C5CE7] hover:bg-[#5846E2] text-white text-xs font-bold px-4 py-2 rounded-xl shadow-md shadow-indigo-500/20 transition-all disabled:opacity-50 cursor-pointer ml-2"
+                  onClick={handleExtract}
+                  disabled={extracting || !urlInput.trim()}
+                  className="px-5 py-3 rounded-xl bg-[#6C5CE7] hover:bg-[#5846E2] disabled:opacity-50 text-white text-xs font-bold transition-all shadow-sm flex items-center justify-center gap-2 shrink-0 cursor-pointer"
                 >
-                  <Sparkles size={14} className={generating ? "animate-spin" : ""} />
-                  {generating ? "Synthesizing All Channels..." : "Synthesize 7 Channels"}
+                  {extracting ? <RefreshCw size={14} className="animate-spin" /> : <ArrowRight size={14} />}
+                  <span>{extracting ? "Extracting..." : "Extract Article"}</span>
                 </button>
               </div>
             </div>
+          )}
 
-            <p className="text-xs text-gray-700 whitespace-pre-wrap max-h-48 overflow-y-auto leading-relaxed bg-white p-4 rounded-xl border border-gray-200 font-sans">
+          {activeInputTab === "youtube" && (
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-gray-700">YouTube Video Link</label>
+              <div className="flex flex-col sm:flex-row gap-2.5">
+                <div className="relative flex-1">
+                  <Video className="absolute left-3.5 top-3.5 text-red-500" size={17} />
+                  <input
+                    type="url"
+                    value={youtubeUrl}
+                    onChange={(e) => setYoutubeUrl(e.target.value)}
+                    placeholder="https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+                    className="w-full text-xs sm:text-sm pl-10 pr-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-red-400/30 text-gray-800 placeholder:text-gray-400"
+                  />
+                </div>
+                <button
+                  onClick={handleExtract}
+                  disabled={extracting || !youtubeUrl.trim()}
+                  className="px-5 py-3 rounded-xl bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-xs font-bold transition-all shadow-sm flex items-center justify-center gap-2 shrink-0 cursor-pointer"
+                >
+                  {extracting ? <RefreshCw size={14} className="animate-spin" /> : <ArrowRight size={14} />}
+                  <span>{extracting ? "Fetching Transcript..." : "Extract Transcript"}</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {activeInputTab === "pdf" && (
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-gray-700">Upload PDF Document</label>
+              <div className="border-2 border-dashed border-gray-200 hover:border-[#6C5CE7]/60 rounded-2xl p-6 text-center space-y-3 bg-gray-50/40 transition-colors">
+                <Upload size={28} className="mx-auto text-gray-400" />
+                <div className="text-xs text-gray-600 font-medium">
+                  {pdfFile ? (
+                    <span className="font-bold text-[#6C5CE7]">{pdfFile.name} ({(pdfFile.size / 1024).toFixed(1)} KB)</span>
+                  ) : (
+                    <span>Click to browse or drag and drop your PDF</span>
+                  )}
+                </div>
+                <input
+                  type="file"
+                  accept="application/pdf"
+                  onChange={(e) => setPdfFile(e.target.files?.[0] || null)}
+                  className="hidden"
+                  id="pdf-upload"
+                />
+                <div className="flex justify-center gap-3">
+                  <label
+                    htmlFor="pdf-upload"
+                    className="px-4 py-2 rounded-xl bg-white border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-gray-50 cursor-pointer shadow-sm"
+                  >
+                    Select File
+                  </label>
+                  {pdfFile && (
+                    <button
+                      onClick={handleExtract}
+                      disabled={extracting}
+                      className="px-4 py-2 rounded-xl bg-[#6C5CE7] hover:bg-[#5846E2] text-white text-xs font-bold transition-all shadow-sm flex items-center gap-2 cursor-pointer"
+                    >
+                      {extracting ? <RefreshCw size={13} className="animate-spin" /> : <ArrowRight size={13} />}
+                      <span>Extract PDF Pages</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeInputTab === "audio" && (
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-gray-700">Upload Audio / Podcast File</label>
+              <div className="border-2 border-dashed border-gray-200 hover:border-emerald-400/60 rounded-2xl p-6 text-center space-y-3 bg-gray-50/40 transition-colors">
+                <Mic size={28} className="mx-auto text-emerald-500" />
+                <div className="text-xs text-gray-600 font-medium">
+                  {audioFile ? (
+                    <span className="font-bold text-emerald-600">{audioFile.name} ({(audioFile.size / (1024 * 1024)).toFixed(1)} MB)</span>
+                  ) : (
+                    <span>Upload podcast, voice note, or interview (mp3, wav, m4a)</span>
+                  )}
+                </div>
+                <input
+                  type="file"
+                  accept="audio/*"
+                  onChange={(e) => setAudioFile(e.target.files?.[0] || null)}
+                  className="hidden"
+                  id="audio-upload"
+                />
+                <div className="flex justify-center gap-3">
+                  <label
+                    htmlFor="audio-upload"
+                    className="px-4 py-2 rounded-xl bg-white border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-gray-50 cursor-pointer shadow-sm"
+                  >
+                    Select Audio
+                  </label>
+                  {audioFile && (
+                    <button
+                      onClick={handleExtract}
+                      disabled={extracting}
+                      className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all shadow-sm flex items-center gap-2 cursor-pointer"
+                    >
+                      {extracting ? <RefreshCw size={13} className="animate-spin" /> : <ArrowRight size={13} />}
+                      <span>Transcribe Audio</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeInputTab === "text" && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-gray-700">Paste Your Text</label>
+                <span className="text-[11px] text-gray-400">
+                  {inputText.trim() ? `${inputText.trim().split(/\s+/).length} words` : "Empty"}
+                </span>
+              </div>
+              <textarea
+                rows={5}
+                value={inputText}
+                onChange={(e) => {
+                  setInputText(e.target.value)
+                  setExtracted(e.target.value)
+                }}
+                placeholder="Paste articles, research notes, newsletters, or transcripts here..."
+                className="w-full text-xs sm:text-sm p-3.5 rounded-2xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#6C5CE7]/30 text-gray-800 placeholder:text-gray-400 leading-relaxed font-sans"
+              />
+            </div>
+          )}
+        </div>
+
+        {error && (
+          <div className="p-4 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs flex items-center gap-2.5">
+            <AlertCircle size={16} className="shrink-0" />
+            <span className="flex-1">{error}</span>
+          </div>
+        )}
+
+        {extracted && (
+          <div className="p-4 rounded-2xl bg-indigo-50/50 border border-indigo-100 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <CheckCircle size={15} className="text-emerald-500" />
+                <span className="text-xs font-bold text-gray-800">
+                  {extractedTitle ? extractedTitle : "Source Content Ready for Synthesis"}
+                </span>
+              </div>
+              <span className="text-[11px] font-semibold text-[#6C5CE7] bg-white px-2.5 py-1 rounded-lg border border-indigo-100">
+                {extracted.split(/\s+/).length} words extracted
+              </span>
+            </div>
+            <p className="text-xs text-gray-500 line-clamp-2 leading-relaxed">
               {extracted}
             </p>
           </div>
         )}
-      </div>
+      </section>
 
-      {/* MODULE 3: MULTI-PLATFORM SYNTHESIS RESULTS */}
-      {hasAnyOutput && (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200/80 p-6 space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-4">
-            <div>
-              <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-                <Sparkles className="text-[#6C5CE7]" size={20} />
-                Multi-Platform Synthesized Results
-              </h2>
-              <p className="text-xs text-gray-400 mt-0.5">
-                Preserves original meaning across 7 distinct platform styles with tone adaptation ({selectedTone}).
-              </p>
-            </div>
+      {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          GENERATION CONTROLS SECTION
+          Tone, Target Audience, Language, Channel selection, Synthesize CTA
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      <section className="bg-white rounded-3xl border border-gray-200/80 p-6 md:p-8 shadow-sm space-y-6">
+        <div>
+          <h2 className="text-lg font-bold text-[#15161A] tracking-tight flex items-center gap-2.5">
+            <span className="w-6 h-6 rounded-lg bg-indigo-50 text-[#6C5CE7] flex items-center justify-center text-xs font-bold">
+              2
+            </span>
+            <span>Configure Voice & Target Channels</span>
+          </h2>
+          <p className="text-xs text-gray-400 mt-1">
+            Personalize tone, audience persona, output language, and select which of the 7 channels to generate.
+          </p>
+        </div>
 
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => {
-                  if (isEditing) {
-                    handleSaveEdit()
-                  } else {
-                    setIsEditing(true)
-                  }
-                }}
-                className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors"
-              >
-                {isEditing ? <Save size={14} /> : <Edit3 size={14} />}
-                {isEditing ? "Save Edits" : "Edit Output"}
-              </button>
-
-              <button
-                onClick={() => handleCopy(outputs[activePlatformTab], activePlatformTab)}
-                className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-gray-900 text-white hover:bg-black transition-colors"
-              >
-                {copiedKey === activePlatformTab ? (
-                  <>
-                    <Check size={14} className="text-emerald-400" />
-                    <span>Copied!</span>
-                  </>
-                ) : (
-                  <>
-                    <Copy size={14} />
-                    <span>Copy Tab</span>
-                  </>
-                )}
-              </button>
-
-              <button
-                onClick={() => handleDownload(outputs[activePlatformTab], activePlatformTab)}
-                className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors"
-                title="Download as .txt"
-              >
-                <Download size={14} />
-                <span>Export</span>
-              </button>
-            </div>
+        {/* 3 Selectors Row: Tone, Audience, Language */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-gray-700 flex items-center gap-1.5">
+              <Sliders size={13} className="text-[#6C5CE7]" />
+              <span>Tone of Voice</span>
+            </label>
+            <select
+              value={selectedTone}
+              onChange={(e) => setSelectedTone(e.target.value)}
+              className="w-full text-xs font-semibold px-3.5 py-2.5 rounded-xl border border-gray-200 bg-white text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#6C5CE7]/30"
+            >
+              {TONES.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
           </div>
 
-          {/* 7 Platform Output Tabs */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-2">
-            {PLATFORM_CONFIG.map(({ key, label, icon, color }) => {
-              const active = activePlatformTab === key
-              const hasText = Boolean(outputs[key])
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-gray-700 flex items-center gap-1.5">
+              <Eye size={13} className="text-[#6C5CE7]" />
+              <span>Target Audience</span>
+            </label>
+            <select
+              value={selectedAudience}
+              onChange={(e) => setSelectedAudience(e.target.value)}
+              className="w-full text-xs font-semibold px-3.5 py-2.5 rounded-xl border border-gray-200 bg-white text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#6C5CE7]/30"
+            >
+              {AUDIENCES.map((a) => (
+                <option key={a} value={a}>
+                  {a}
+                </option>
+              ))}
+            </select>
+          </div>
 
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-gray-700 flex items-center gap-1.5">
+              <Languages size={13} className="text-[#6C5CE7]" />
+              <span>Language</span>
+            </label>
+            <select
+              value={selectedLanguage}
+              onChange={(e) => setSelectedLanguage(e.target.value)}
+              className="w-full text-xs font-semibold px-3.5 py-2.5 rounded-xl border border-gray-200 bg-white text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#6C5CE7]/30"
+            >
+              {LANGUAGES.map((l) => (
+                <option key={l} value={l}>
+                  {l}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Channel Selection Pills */}
+        <div className="space-y-2 pt-2 border-t border-gray-100">
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-bold text-gray-700">Target Channels (7 Available)</label>
+            <button
+              onClick={toggleAllChannels}
+              className="text-xs font-bold text-[#6C5CE7] hover:underline cursor-pointer"
+            >
+              {selectedChannels.length === CHANNELS.length ? "Deselect All" : "Select All 7"}
+            </button>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {CHANNELS.map((ch) => {
+              const selected = selectedChannels.includes(ch.key)
               return (
                 <button
-                  key={key}
-                  onClick={() => setActivePlatformTab(key)}
-                  className={`p-3 rounded-xl border text-left transition-all ${
-                    active
-                      ? "border-[#6C5CE7] bg-indigo-50/50 shadow-sm ring-2 ring-[#6C5CE7]/15"
-                      : "border-gray-200/80 hover:border-gray-300 bg-white"
+                  key={ch.key}
+                  onClick={() => toggleChannel(ch.key)}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+                    selected
+                      ? 'bg-gray-900 border-gray-900 text-white shadow-sm'
+                      : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300'
                   }`}
                 >
-                  <div className="text-lg mb-1">{icon}</div>
-                  <div className="text-xs font-bold text-gray-800 leading-tight">{label}</div>
-                  <div className="text-[10px] text-gray-400 mt-1 flex items-center justify-between">
-                    <span>{hasText ? "Ready" : "Empty"}</span>
-                    {hasText && <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: color }}></span>}
-                  </div>
+                  <PlatformIcon platform={ch.key} size={15} />
+                  <span>{ch.name}</span>
                 </button>
               )
             })}
           </div>
+        </div>
 
-          {/* Active Platform Content Display / Editor */}
-          <div className="rounded-xl border border-gray-200 p-4.5 bg-gray-50/60">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-bold uppercase tracking-wider text-gray-700">
-                {PLATFORM_CONFIG.find((p) => p.key === activePlatformTab)?.label} Content
-              </span>
-              <span className="text-[11px] text-gray-400">
-                {outputs[activePlatformTab]?.length || 0} characters
-              </span>
-            </div>
-
-            {isEditing ? (
-              <textarea
-                value={outputs[activePlatformTab] || ""}
-                onChange={(e) =>
-                  setOutputs({ ...outputs, [activePlatformTab]: e.target.value })
-                }
-                className="w-full h-80 text-xs font-sans p-4 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#6C5CE7]/30 bg-white leading-relaxed text-gray-800"
-              />
+        {/* Large Primary "Synthesize All Channels" Button */}
+        <div className="pt-2">
+          <button
+            onClick={handleSynthesizeAll}
+            disabled={isBackgroundGenerating || (!contentId && !extracted.trim()) || selectedChannels.length === 0}
+            className="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-[#6C5CE7] via-[#5D4AE0] to-[#7C3AED] hover:opacity-95 disabled:opacity-50 text-white font-extrabold text-sm sm:text-base transition-all shadow-lg shadow-indigo-600/25 flex items-center justify-center gap-3 cursor-pointer"
+          >
+            {isBackgroundGenerating ? (
+              <>
+                <RefreshCw size={18} className="animate-spin text-white" />
+                <span>
+                  Synthesizing in Background ({activeJob?.completed_channels || 0}/{activeJob?.total_channels || 7} Ready)...
+                </span>
+                <span className="text-xs font-normal opacity-80">({elapsedTime.toFixed(1)}s)</span>
+              </>
             ) : (
-              <div className="w-full max-h-96 overflow-y-auto text-xs whitespace-pre-wrap leading-relaxed text-gray-800 bg-white p-4.5 rounded-xl border border-gray-200/80 font-sans shadow-inner">
-                {outputs[activePlatformTab] || (
-                  <span className="text-gray-400 italic">No output generated for this channel yet.</span>
-                )}
-              </div>
+              <>
+                <Sparkles size={18} className="text-white" />
+                <span>Synthesize {selectedChannels.length} Channels in Background</span>
+                <ArrowRight size={17} />
+              </>
             )}
+          </button>
+        </div>
+      </section>
+
+      {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          SEVEN CHANNEL OUTPUTS SECTION
+          Includes Best Time to Post card directly below each post!
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      <section className="space-y-6">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <h2 className="text-xl font-extrabold text-[#15161A] tracking-tight flex items-center gap-2.5">
+              <span>Synthesized Channel Outputs</span>
+              <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-purple-100 text-[#6C5CE7]">
+                {completedChannelsCount} of 7 Ready
+              </span>
+            </h2>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Each channel is crafted in its platform-specific length, format, and tone.
+            </p>
           </div>
 
-          {/* MODULE 2 EXTENSIONS: SEO, QUALITY, IMAGE PROMPT, TRANSLATION, SCHEDULING */}
-          <div className="pt-4 border-t border-gray-200/80 space-y-5">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500">
-              Advanced AI Capabilities & Utilities
-            </h3>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              {/* Quality Checker Card */}
-              <div className="p-4 bg-white rounded-xl border border-gray-200 flex flex-col justify-between">
-                <div>
-                  <div className="flex items-center gap-2 text-xs font-bold text-gray-800 mb-1">
-                    <CheckCircle size={15} className="text-emerald-500" />
-                    Quality Checker
-                  </div>
-                  <p className="text-[11px] text-gray-400 mb-3">
-                    Measurable score for readability, density, and structure.
-                  </p>
-                  {qualityData ? (
-                    <div className="space-y-2">
-                      <div className="text-2xl font-bold text-gray-900">
-                        {qualityData.score}/100
-                      </div>
-                      <div className="text-[10px] text-gray-500">
-                        {qualityData.suggestions}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="text-[11px] text-gray-400">Click to evaluate.</div>
-                  )}
-                </div>
-                <button
-                  onClick={handleQualityCheck}
-                  disabled={loadingQuality}
-                  className="mt-3 w-full bg-gray-50 hover:bg-gray-100 border border-gray-200 text-gray-700 text-xs font-semibold py-1.5 rounded-lg transition-colors cursor-pointer"
-                >
-                  {loadingQuality ? "Analyzing..." : "Re-check Quality"}
-                </button>
-              </div>
-
-              {/* SEO Engine Card */}
-              <div className="p-4 bg-white rounded-xl border border-gray-200 flex flex-col justify-between">
-                <div>
-                  <div className="flex items-center gap-2 text-xs font-bold text-gray-800 mb-1">
-                    <TrendingUp size={15} className="text-blue-500" />
-                    SEO & Keywords
-                  </div>
-                  <p className="text-[11px] text-gray-400 mb-3">
-                    Extract high-intent keywords, entities, and metadata.
-                  </p>
-                  {seoData ? (
-                    <div className="text-[10px] text-gray-700 max-h-24 overflow-y-auto whitespace-pre-wrap bg-gray-50 p-2 rounded border border-gray-100">
-                      {seoData}
-                    </div>
-                  ) : (
-                    <div className="text-[11px] text-gray-400">No SEO generated yet.</div>
-                  )}
-                </div>
-                <button
-                  onClick={handleFetchSeo}
-                  disabled={loadingSeo}
-                  className="mt-3 w-full bg-gray-50 hover:bg-gray-100 border border-gray-200 text-gray-700 text-xs font-semibold py-1.5 rounded-lg transition-colors cursor-pointer"
-                >
-                  {loadingSeo ? "Extracting..." : "Generate SEO Meta"}
-                </button>
-              </div>
-
-              {/* Image Generation Prompt Studio */}
-              <div className="p-4 bg-white rounded-xl border border-gray-200 flex flex-col justify-between">
-                <div>
-                  <div className="flex items-center gap-2 text-xs font-bold text-gray-800 mb-1">
-                    <ImageIcon size={15} className="text-purple-500" />
-                    Image Studio
-                  </div>
-                  <p className="text-[11px] text-gray-400 mb-2">
-                    Visual prompt for DALL-E / Stable Diffusion.
-                  </p>
-                  <select
-                    value={imageStyle}
-                    onChange={(e) => setImageStyle(e.target.value)}
-                    className="w-full text-[11px] border border-gray-200 rounded p-1 mb-2 bg-gray-50"
-                  >
-                    <option value="Modern Digital Art">Modern Digital Art</option>
-                    <option value="Photorealistic Cinematic">Photorealistic Cinematic</option>
-                    <option value="Minimalist Vector Illustration">Minimalist Vector</option>
-                    <option value="3D Isometric Render">3D Isometric Render</option>
-                  </select>
-                  {imagePromptData && (
-                    <div className="text-[10px] text-gray-700 max-h-20 overflow-y-auto bg-gray-50 p-1.5 rounded border border-gray-100">
-                      {imagePromptData.image_prompt}
-                    </div>
-                  )}
-                </div>
-                <button
-                  onClick={handleCreateImagePrompt}
-                  disabled={loadingImage}
-                  className="mt-2 w-full bg-gray-50 hover:bg-gray-100 border border-gray-200 text-gray-700 text-xs font-semibold py-1.5 rounded-lg transition-colors cursor-pointer"
-                >
-                  {loadingImage ? "Generating..." : "Craft Visual Prompt"}
-                </button>
-              </div>
-
-              {/* Multilingual Translation */}
-              <div className="p-4 bg-white rounded-xl border border-gray-200 flex flex-col justify-between">
-                <div>
-                  <div className="flex items-center gap-2 text-xs font-bold text-gray-800 mb-1">
-                    <Languages size={15} className="text-amber-500" />
-                    Multilingual Translator
-                  </div>
-                  <p className="text-[11px] text-gray-400 mb-2">
-                    Translate current tab into regional or global language.
-                  </p>
-                  <select
-                    value={targetLang}
-                    onChange={(e) => setTargetLang(e.target.value)}
-                    className="w-full text-[11px] border border-gray-200 rounded p-1 mb-2 bg-gray-50"
-                  >
-                    {LANGUAGES.map((l) => (
-                      <option key={l} value={l}>{l}</option>
-                    ))}
-                  </select>
-                  {translatedText && (
-                    <div className="text-[10px] text-gray-700 max-h-20 overflow-y-auto bg-gray-50 p-1.5 rounded border border-gray-100">
-                      {translatedText}
-                    </div>
-                  )}
-                </div>
-                <button
-                  onClick={handleTranslate}
-                  disabled={loadingTranslate}
-                  className="mt-2 w-full bg-gray-50 hover:bg-gray-100 border border-gray-200 text-gray-700 text-xs font-semibold py-1.5 rounded-lg transition-colors cursor-pointer"
-                >
-                  {loadingTranslate ? "Translating..." : `Translate to ${targetLang}`}
-                </button>
-              </div>
-            </div>
-
-            {/* Content Scheduler Bar */}
-            <div className="p-4 rounded-xl bg-gray-50 border border-gray-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="flex items-center gap-2.5">
-                <Calendar size={18} className="text-[#6C5CE7]" />
-                <div>
-                  <div className="text-xs font-bold text-gray-900">
-                    Schedule Current Output ({PLATFORM_CONFIG.find((p) => p.key === activePlatformTab)?.label})
-                  </div>
-                  <div className="text-[10px] text-gray-400">
-                    Save to the database queue for automated publishing.
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <input
-                  type="datetime-local"
-                  value={scheduleDateTime}
-                  onChange={(e) => setScheduleDateTime(e.target.value)}
-                  className="text-xs border border-gray-300 rounded-lg p-1.5 bg-white text-gray-700 focus:outline-none"
-                />
-                <button
-                  onClick={handleSchedulePost}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-4 py-2 rounded-lg transition-colors cursor-pointer"
-                >
-                  Schedule Post
-                </button>
-              </div>
-            </div>
-            {scheduleStatus && (
-              <div className="text-xs text-emerald-600 font-semibold">{scheduleStatus}</div>
+          <div className="flex flex-wrap items-center gap-2.5">
+            {completedChannelsCount > 0 && (
+              <ExportDropdown
+                isGlobal={true}
+                allChannelsData={outputs}
+                contentId={contentId}
+              />
             )}
+
+            <button
+              onClick={handleRegenerateAll}
+              disabled={isBackgroundGenerating || (!contentId && !extracted.trim())}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 hover:border-gray-300 text-gray-700 text-xs font-semibold transition-all shadow-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Refresh all seven channels"
+            >
+              <RotateCcw
+                size={12}
+                className={isBackgroundGenerating ? "animate-spin text-[#6C5CE7]" : "text-gray-500"}
+              />
+              <span>
+                {isBackgroundGenerating
+                  ? `Refreshing All (${activeJob?.completed_channels || 0}/7)...`
+                  : "Refresh"}
+              </span>
+            </button>
           </div>
         </div>
-      )}
+
+        {successToast && (
+          <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold flex items-center justify-between animate-in fade-in slide-in-from-top-2">
+            <div className="flex items-center gap-2">
+              <CheckCircle size={16} className="text-emerald-600" />
+              <span>{successToast}</span>
+            </div>
+            <button
+              onClick={() => setSuccessToast("")}
+              className="text-emerald-700 hover:text-emerald-900 cursor-pointer"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        )}
+
+        {/* 7 Channels Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {CHANNELS.map((ch) => {
+            const hasContent = Boolean(outputs[ch.key])
+            const status = channelStatus[ch.key] || (hasContent ? "ready" : "idle")
+            const isRegenerating = regeneratingChannel === ch.key
+            const isEditingThis = editingChannel === ch.key
+            const channelError = channelErrors[ch.key]
+
+            return (
+              <div
+                key={ch.key}
+                className="bg-white rounded-3xl border border-gray-200/80 shadow-sm hover:shadow-md transition-shadow flex flex-col justify-between relative overflow-visible"
+              >
+                {/* Channel Card Header */}
+                <div className="p-5 border-b border-gray-100 flex items-center justify-between gap-3 bg-gray-50/40 rounded-t-3xl">
+                  <div className="flex items-center gap-2.5">
+                    <PlatformIcon platform={ch.key} size={22} />
+                    <div>
+                      <h3 className="text-sm font-bold text-gray-900 tracking-tight">
+                        {ch.name}
+                      </h3>
+                      <p className="text-[10px] text-gray-400">{ch.desc}</p>
+                    </div>
+                  </div>
+
+                  {/* Channel Card Header Actions */}
+                  <div className="flex items-center gap-2">
+                    {/* Small Refresh Button */}
+                    <button
+                      onClick={() => handleRegenerateChannel(ch.key)}
+                      disabled={isRegenerating || isBackgroundGenerating || (!contentId && !extracted.trim())}
+                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 hover:border-gray-300 text-gray-700 text-xs font-semibold transition-all shadow-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                      title={`Refresh ${ch.name}`}
+                    >
+                      <RotateCcw
+                        size={12}
+                        className={isRegenerating ? "animate-spin text-[#6C5CE7]" : "text-gray-500"}
+                      />
+                      <span>{isRegenerating ? "Refreshing..." : "Refresh"}</span>
+                    </button>
+
+                    {/* Status Pill (if generating or failed) */}
+                    {status === "generating" && !isRegenerating && (
+                      <span className="inline-flex items-center gap-1 text-[11px] font-bold text-purple-700 bg-purple-50 px-2.5 py-1 rounded-full border border-purple-200 animate-pulse">
+                        <RefreshCw size={11} className="animate-spin" />
+                        Generating...
+                      </span>
+                    )}
+                    {status === "error" && (
+                      <span className="inline-flex items-center gap-1 text-[11px] font-bold text-red-700 bg-red-50 px-2.5 py-1 rounded-full border border-red-200">
+                        <AlertCircle size={11} />
+                        Failed
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Channel Card Body */}
+                <div className="p-5 flex-1 flex flex-col justify-between min-h-[180px]">
+                  {isEditingThis ? (
+                    <div className="space-y-3">
+                      <textarea
+                        rows={8}
+                        value={editBuffer}
+                        onChange={(e) => setEditBuffer(e.target.value)}
+                        className="w-full text-xs sm:text-sm p-3 rounded-xl border border-[#6C5CE7] focus:outline-none focus:ring-2 focus:ring-[#6C5CE7]/30 text-gray-800 leading-relaxed font-sans"
+                      />
+                      <div className="flex justify-end gap-2">
+                        <button
+                          onClick={() => setEditingChannel(null)}
+                          className="px-3 py-1.5 rounded-xl border border-gray-200 text-xs font-semibold text-gray-600 hover:bg-gray-50 cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={() => saveEdit(ch.key)}
+                          className="px-3.5 py-1.5 rounded-xl bg-[#6C5CE7] text-white text-xs font-bold hover:bg-[#5846E2] shadow-sm flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <Save size={13} />
+                          <span>Save Changes</span>
+                        </button>
+                      </div>
+                    </div>
+                  ) : hasContent ? (
+                    <div className="space-y-3">
+                      <div className="text-xs sm:text-sm text-gray-800 whitespace-pre-wrap leading-relaxed font-sans max-h-72 overflow-y-auto pr-1">
+                        {outputs[ch.key]}
+                      </div>
+                      <div className="text-[11px] text-gray-400 pt-2 border-t border-gray-100 flex items-center justify-between">
+                        <span>{outputs[ch.key].length} characters • {outputs[ch.key].split(/\s+/).length} words</span>
+                      </div>
+
+                      {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                          PART 2: BEST TIME TO POST CARD (Under each post)
+                          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+                      <BestTimeToPostCard
+                        platform={ch.key}
+                        content={outputs[ch.key]}
+                        contentId={contentId}
+                      />
+                    </div>
+                  ) : status === "generating" ? (
+                    <div className="flex flex-col items-center justify-center py-10 text-gray-400 space-y-2">
+                      <RefreshCw size={24} className="animate-spin text-[#6C5CE7]" />
+                      <span className="text-xs font-semibold">Synthesizing {ch.name}...</span>
+                    </div>
+                  ) : channelError ? (
+                    <div className="flex flex-col items-center justify-center py-8 text-center space-y-3">
+                      <AlertCircle size={24} className="text-red-500" />
+                      <span className="text-xs text-red-600 max-w-xs">{channelError}</span>
+                      <button
+                        onClick={() => handleRegenerateChannel(ch.key)}
+                        className="px-3 py-1.5 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-bold hover:bg-red-100 flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <RotateCcw size={13} />
+                        <span>Retry Channel</span>
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center py-10 text-center text-gray-400 space-y-2">
+                      <PlatformIcon platform={ch.key} size={28} className="opacity-30" />
+                      <span className="text-xs">Click "Synthesize All Channels" or "Generate" below</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Channel Card Actions Toolbar */}
+                <div className="px-5 py-3.5 bg-gray-50/70 border-t border-gray-100 flex items-center justify-between gap-2 rounded-b-3xl">
+                  <div className="flex items-center gap-1.5">
+                    {!hasContent && (
+                      <button
+                        onClick={() => handleRegenerateChannel(ch.key)}
+                        disabled={isRegenerating || (!contentId && !extracted.trim())}
+                        className="px-3 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-100 disabled:opacity-40 text-gray-700 text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer shadow-xs"
+                      >
+                        <RotateCcw size={13} className={isRegenerating ? "animate-spin text-[#6C5CE7]" : ""} />
+                        <span>{isRegenerating ? "Generating..." : "Generate"}</span>
+                      </button>
+                    )}
+
+                    {hasContent && (
+                      <button
+                        onClick={() => startEditing(ch.key)}
+                        className="px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-100 text-gray-700 text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer shadow-xs"
+                      >
+                        <Edit3 size={13} />
+                        <span>Edit</span>
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    {hasContent && (
+                      <button
+                        onClick={() => handleCopy(outputs[ch.key], ch.key)}
+                        className="px-3 py-1.5 rounded-lg bg-white border border-gray-200 hover:bg-gray-100 text-gray-700 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-xs"
+                      >
+                        {copiedKey === ch.key ? (
+                          <>
+                            <Check size={13} className="text-emerald-500" />
+                            <span className="text-emerald-600">Copied!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy size={13} />
+                            <span>Copy</span>
+                          </>
+                        )}
+                      </button>
+                    )}
+
+                    {hasContent && (
+                      <ExportDropdown
+                        platform={ch.key}
+                        content={outputs[ch.key]}
+                        contentId={contentId}
+                        direction="up"
+                        align="right"
+                      />
+                    )}
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </section>
     </div>
   )
 }
-
-export default InputPage

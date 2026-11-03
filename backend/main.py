@@ -8,7 +8,7 @@ load_dotenv(_AI_ENV, override=False)
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from backend.routes import extract, text, youtube, summarize, content, inputs, schedules, publishing
+from backend.routes import extract, text, youtube, summarize, content, inputs, schedules, publishing, export
 from backend.database import engine, Base
 import backend.models  # Ensure models are registered
 
@@ -42,8 +42,9 @@ app.include_router(inputs.router)
 app.include_router(content.router)
 app.include_router(schedules.router)
 app.include_router(publishing.router)
+app.include_router(export.router)
 
 @app.get("/health")
 def health_check():
     return {"status": "ok", "app": "PRISM Backend"}
-
+

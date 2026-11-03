@@ -34,31 +34,39 @@ VALID_TONES = [
 ]
 
 
-def _format_tone_instruction(tone: Optional[str]) -> str:
-    """Return explicit prompt instruction for the selected tone."""
-    if not tone:
-        return ""
-    t_clean = tone.strip().capitalize()
-    if t_clean == "Casual":
-        return "Tone: Casual, relaxed, natural, and effortless (avoid overly formal or stiff phrasing)."
-    elif t_clean == "Conversational":
-        return "Tone: Conversational, friendly, accessible, and direct."
-    elif t_clean == "Educational":
-        return "Tone: Educational, informative, insightful, and clear."
-    elif t_clean == "Humorous":
-        return "Tone: Lighthearted, witty, playful, and humorous."
-    elif t_clean == "Professional":
-        return "Tone: Professional, polished, executive, and credible."
-    return f"Tone: {tone}."
+def _format_tone_instruction(tone: Optional[str], target_audience: Optional[str] = None) -> str:
+    """Return explicit prompt instruction for the selected tone and target audience."""
+    tone_part = ""
+    if tone:
+        t_clean = tone.strip().capitalize()
+        if t_clean == "Casual":
+            tone_part = "Tone: Casual, relaxed, natural, and effortless (avoid overly formal or stiff phrasing)."
+        elif t_clean == "Conversational":
+            tone_part = "Tone: Conversational, friendly, accessible, and direct."
+        elif t_clean == "Educational":
+            tone_part = "Tone: Educational, informative, insightful, and clear."
+        elif t_clean == "Humorous":
+            tone_part = "Tone: Lighthearted, witty, playful, and humorous."
+        elif t_clean == "Professional":
+            tone_part = "Tone: Professional, polished, executive, and credible."
+        else:
+            tone_part = f"Tone: {tone}."
+
+    audience_part = ""
+    if target_audience and str(target_audience).strip() and str(target_audience).strip() not in ("General Public / Broad Audience", "General Audience", "Default", "All"):
+        audience_part = f"Target Audience: Specifically tailor vocabulary, phrasing, and depth for {str(target_audience).strip()}."
+
+    parts = [p for p in (tone_part, audience_part) if p]
+    return " | ".join(parts)
 
 
-def generate_summary(source_text: str, tone: Optional[str] = None) -> Dict[str, Any]:
+def generate_summary(source_text: str, tone: Optional[str] = None, target_audience: Optional[str] = None) -> Dict[str, Any]:
     """Generate a concise summary with 3-5 key points from the source text."""
     error_res = _validate_source_text(source_text)
     if error_res:
         return error_res
 
-    tone_instruction = _format_tone_instruction(tone)
+    tone_instruction = _format_tone_instruction(tone, target_audience=target_audience)
     tone_block = f"\n- {tone_instruction}" if tone_instruction else ""
 
     prompt = f"""You are a content summarizer. Summarize the following source text.
@@ -85,13 +93,13 @@ Source Text:
     return generate_content(prompt)
 
 
-def generate_linkedin_post(source_text: str, tone: Optional[str] = None) -> Dict[str, Any]:
+def generate_linkedin_post(source_text: str, tone: Optional[str] = None, target_audience: Optional[str] = None) -> Dict[str, Any]:
     """Generate a LinkedIn post adapted to the selected tone based on the source text."""
     error_res = _validate_source_text(source_text)
     if error_res:
         return error_res
 
-    tone_instruction = _format_tone_instruction(tone)
+    tone_instruction = _format_tone_instruction(tone, target_audience=target_audience)
     tone_line = tone_instruction if tone_instruction else "Tone: Professional LinkedIn tone."
 
     prompt = f"""You are an expert social media strategist writing a LinkedIn post based ONLY on the source text below.
@@ -128,13 +136,13 @@ Source Text:
     return generate_content(prompt)
 
 
-def generate_twitter_content(source_text: str, tone: Optional[str] = None) -> Dict[str, Any]:
+def generate_twitter_content(source_text: str, tone: Optional[str] = None, target_audience: Optional[str] = None) -> Dict[str, Any]:
     """Generate concise Twitter/X post or thread based on the source text."""
     error_res = _validate_source_text(source_text)
     if error_res:
         return error_res
 
-    tone_instruction = _format_tone_instruction(tone)
+    tone_instruction = _format_tone_instruction(tone, target_audience=target_audience)
     tone_block = f"\n- {tone_instruction}" if tone_instruction else ""
 
     prompt = f"""You are a social media copywriter creating a structured Twitter/X thread based ONLY on the source text below.
@@ -170,13 +178,13 @@ generate_twitter_thread = generate_twitter_content
 
 
 
-def generate_instagram_caption(source_text: str, tone: Optional[str] = None) -> Dict[str, Any]:
+def generate_instagram_caption(source_text: str, tone: Optional[str] = None, target_audience: Optional[str] = None) -> Dict[str, Any]:
     """Generate an engaging Instagram caption based on the source text."""
     error_res = _validate_source_text(source_text)
     if error_res:
         return error_res
 
-    tone_instruction = _format_tone_instruction(tone)
+    tone_instruction = _format_tone_instruction(tone, target_audience=target_audience)
     tone_block = f"\n- {tone_instruction}" if tone_instruction else ""
 
     prompt = f"""You are an Instagram content creator writing a caption based ONLY on the source text below.
@@ -210,13 +218,13 @@ Source Text:
     return generate_content(prompt)
 
 
-def generate_youtube_content(source_text: str, tone: Optional[str] = None) -> Dict[str, Any]:
+def generate_youtube_content(source_text: str, tone: Optional[str] = None, target_audience: Optional[str] = None) -> Dict[str, Any]:
     """Generate YouTube title, description, key points, and CTA based on source text."""
     error_res = _validate_source_text(source_text)
     if error_res:
         return error_res
 
-    tone_instruction = _format_tone_instruction(tone)
+    tone_instruction = _format_tone_instruction(tone, target_audience=target_audience)
     tone_block = f"\n- {tone_instruction}" if tone_instruction else ""
 
     prompt = f"""You are a YouTube video strategist creating video title and description content based ONLY on the source text below.
@@ -305,13 +313,13 @@ def generate_all_content(source_text: str, tone: Optional[str] = None) -> Dict[s
     }
 
 
-def generate_email_newsletter(source_text: str, tone: Optional[str] = None) -> Dict[str, Any]:
+def generate_email_newsletter(source_text: str, tone: Optional[str] = None, target_audience: Optional[str] = None) -> Dict[str, Any]:
     """Generate an email newsletter draft with subject lines, preview text, and CTA."""
     error_res = _validate_source_text(source_text)
     if error_res:
         return error_res
 
-    tone_instruction = f"Tone: {tone}." if tone else "Tone: Engaging, direct, and conversational."
+    tone_instruction = _format_tone_instruction(tone, target_audience=target_audience) or "Tone: Engaging, direct, and conversational."
 
     prompt = f"""You are an email marketing specialist creating an engaging email newsletter based ONLY on the source text below.
 
@@ -343,13 +351,13 @@ Source Text:
     return generate_content(prompt)
 
 
-def generate_blog_post(source_text: str, tone: Optional[str] = None) -> Dict[str, Any]:
+def generate_blog_post(source_text: str, tone: Optional[str] = None, target_audience: Optional[str] = None) -> Dict[str, Any]:
     """Generate an SEO-optimized blog rewrite with structured headings and conclusion."""
     error_res = _validate_source_text(source_text)
     if error_res:
         return error_res
 
-    tone_instruction = f"Tone: {tone}." if tone else "Tone: Educational, informative, and authoritative."
+    tone_instruction = _format_tone_instruction(tone, target_audience=target_audience) or "Tone: Educational, informative, and authoritative."
 
     prompt = f"""You are a content writer and SEO copywriter creating a complete structured blog post based ONLY on the source text below.
 
@@ -452,3 +460,44 @@ Content to translate:
     return generate_content(prompt)
 
 
+
+
+if __name__ == "__main__":
+    import sys
+
+    # Ensure UTF-8 output on Windows terminal
+    if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+
+    sample_text = (
+        "PRISM is an AI-powered content repurposing engine. "
+        "It takes source material such as blogs, YouTube videos, and PDFs, "
+        "and automatically generates tailored multi-platform content for LinkedIn, Twitter/X, Instagram, and YouTube."
+    )
+
+    print("==================================================")
+    print("▶ RUNNING PRISM CONTENT GENERATORS")
+    print("==================================================")
+    print(f"\n[Source Text]:\n{sample_text}\n")
+
+    print("\n--------------------------------------------------")
+    print("1. SUMMARY")
+    print("--------------------------------------------------")
+    summary = generate_summary(sample_text)
+    print(summary.get("response") or f"Error: {summary.get('error')}")
+
+    print("\n--------------------------------------------------")
+    print("2. LINKEDIN POST")
+    print("--------------------------------------------------")
+    linkedin = generate_linkedin_post(sample_text, tone="Professional")
+    print(linkedin.get("response") or f"Error: {linkedin.get('error')}")
+
+    print("\n--------------------------------------------------")
+    print("3. TWITTER / X THREAD")
+    print("--------------------------------------------------")
+    twitter = generate_twitter_content(sample_text)
+    print(twitter.get("response") or f"Error: {twitter.get('error')}")
+
+    print("\n==================================================")
+    print("✓ DONE! All generators executed successfully.")
+    print("==================================================")

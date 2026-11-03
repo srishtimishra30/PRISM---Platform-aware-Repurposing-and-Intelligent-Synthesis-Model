@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Text, TIMESTAMP, ForeignKey
+from sqlalchemy import Column, String, Text, TIMESTAMP, ForeignKey, Integer, Float
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import uuid
@@ -67,4 +67,37 @@ class ContentMetadata(Base):
     meta_key = Column(String(50), nullable=False)  # seo, image_prompt, quality_score, translation
     meta_value = Column(Text, nullable=False)
     created_at = Column(TIMESTAMP, server_default=func.now())
-
+
+
+class GenerationJob(Base):
+    __tablename__ = "generation_jobs"
+
+    id = Column(String(36), primary_key=True, default=_gen_uuid)  # job_id
+    input_id = Column(String(36), ForeignKey("content_inputs.id", ondelete="CASCADE"), nullable=False)
+    status = Column(String(30), default="Pending")  # Pending, Processing, Partially Completed, Completed, Failed
+    progress = Column(Integer, default=0)
+    total_channels = Column(Integer, default=7)
+    completed_channels = Column(Integer, default=0)
+    tone = Column(String(50), default="Professional")
+    target_audience = Column(String(100), nullable=True)
+    language = Column(String(50), default="English")
+    error = Column(Text, nullable=True)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+    completed_at = Column(TIMESTAMP, nullable=True)
+
+    channel_results = relationship("JobChannelResult", back_populates="job", cascade="all, delete-orphan", lazy="joined")
+
+
+class JobChannelResult(Base):
+    __tablename__ = "job_channel_results"
+
+    id = Column(String(36), primary_key=True, default=_gen_uuid)
+    job_id = Column(String(36), ForeignKey("generation_jobs.id", ondelete="CASCADE"), nullable=False)
+    platform = Column(String(50), nullable=False)
+    generated_content = Column(Text, nullable=True)
+    status = Column(String(30), default="Pending")  # Pending, Processing, Completed, Failed
+    response_time = Column(Float, nullable=True)
+    error = Column(Text, nullable=True)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+
+    job = relationship("GenerationJob", back_populates="channel_results")

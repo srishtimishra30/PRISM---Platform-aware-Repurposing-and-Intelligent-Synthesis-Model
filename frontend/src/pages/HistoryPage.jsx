@@ -20,6 +20,7 @@ import {
   AlertCircle
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import ExportDropdown from '../components/ExportDropdown'
 
 const API = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000"
 
@@ -51,16 +52,25 @@ export default function HistoryPage() {
   const fetchHistory = async () => {
     setLoading(true)
     setError("")
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 7000)
+
     try {
-      const res = await fetch(`${API}/api/content?limit=100`)
+      const res = await fetch(`${API}/api/content?limit=100`, { signal: controller.signal })
+      clearTimeout(timeoutId)
       if (!res.ok) {
         throw new Error(`Failed to load history (Status ${res.status})`)
       }
       const data = await res.json()
       setItems(Array.isArray(data) ? data : [])
     } catch (err) {
-      setError(err.message || "Failed to connect to backend server.")
+      if (err.name === "AbortError") {
+        setError("History request timed out. Please verify the backend is running.")
+      } else {
+        setError(err.message || "Failed to connect to backend server.")
+      }
     } finally {
+      clearTimeout(timeoutId)
       setLoading(false)
     }
   }
@@ -403,14 +413,14 @@ export default function HistoryPage() {
                             {copiedKey === item.id ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
                           </button>
 
-                          {/* Quick Download */}
-                          <button
-                            onClick={() => handleDownload(item.outputs?.summary || item.raw_text, `content-${item.id}`)}
-                            className="p-1.5 rounded-lg border border-gray-200 text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors cursor-pointer"
-                            title="Download .txt"
-                          >
-                            <Download size={14} />
-                          </button>
+                          {/* Multi-Format Export Dropdown */}
+                          <ExportDropdown
+                            isGlobal={true}
+                            allChannelsData={item.outputs}
+                            contentId={item.id}
+                            direction="up"
+                            align="right"
+                          />
 
                           {/* Delete Item */}
                           <button
@@ -513,18 +523,26 @@ export default function HistoryPage() {
                   <span>{copiedKey === "modal-copy" ? "Copied" : "Copy"}</span>
                 </button>
 
-                <button
-                  onClick={() => {
-                    const text = activeModalTab === "source"
-                      ? selectedItem.raw_text
-                      : selectedItem.outputs?.[activeModalTab]
-                    handleDownload(text, `${selectedItem.id}-${activeModalTab}`)
-                  }}
-                  className="px-4 py-2 rounded-xl border border-gray-200 text-gray-700 hover:bg-gray-50 text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
-                >
-                  <Download size={14} />
-                  <span>Download</span>
-                </button>
+                {activeModalTab !== "source" && selectedItem.outputs?.[activeModalTab] && (
+                  <ExportDropdown
+                    platform={activeModalTab}
+                    content={selectedItem.outputs[activeModalTab]}
+                    contentId={selectedItem.id}
+                    direction="up"
+                    align="right"
+                    label={`Export ${PLATFORM_COLORS[activeModalTab]?.label || 'Channel'}`}
+                  />
+                )}
+
+                <ExportDropdown
+                  isGlobal={true}
+                  allChannelsData={selectedItem.outputs}
+                  contentId={selectedItem.id}
+                  direction="up"
+                  align="right"
+                  label="Download All"
+                  buttonClassName="bg-[#6C5CE7] hover:bg-[#5846E2] text-white"
+                />
 
                 <button
                   onClick={() => setSelectedItem(null)}
